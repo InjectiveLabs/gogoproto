@@ -974,6 +974,43 @@ func TestUnmarshalingBadInput(t *testing.T) {
 	}
 }
 
+func TestUnmarshalOneofNullIsIgnored(t *testing.T) {
+	tests := []struct {
+		desc string
+		in   string
+		want *pb.MsgWithOneof
+	}{
+		{
+			desc: "single null member",
+			in:   `{"title":null}`,
+			want: &pb.MsgWithOneof{},
+		},
+		{
+			desc: "null member with concrete sibling",
+			in:   `{"title":null,"salary":31000}`,
+			want: &pb.MsgWithOneof{Union: &pb.MsgWithOneof_Salary{Salary: 31000}},
+		},
+		{
+			desc: "concrete sibling with null member",
+			in:   `{"salary":31000,"title":null}`,
+			want: &pb.MsgWithOneof{Union: &pb.MsgWithOneof_Salary{Salary: 31000}},
+		},
+	}
+
+	for _, tt := range tests {
+		var msg pb.MsgWithOneof
+		if err := UnmarshalString(tt.in, &msg); err != nil {
+			t.Fatalf("%s: %v", tt.desc, err)
+		}
+
+		got := proto.MarshalTextString(&msg)
+		want := proto.MarshalTextString(tt.want)
+		if got != want {
+			t.Errorf("%s: got [%s] want [%s]", tt.desc, got, want)
+		}
+	}
+}
+
 // TestUnmarshalOneofConflictDeterminism verifies that unmarshalling a JSON
 // object containing multiple keys from the same oneof group always produces a
 // consistent result. Before the fix the outcome depended on random map

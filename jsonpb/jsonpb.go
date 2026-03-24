@@ -829,6 +829,25 @@ func UnmarshalString(str string, pb proto.Message) error {
 	return new(Unmarshaler).Unmarshal(strings.NewReader(str), pb)
 }
 
+// Oneof members use a wrapper pointer as their presence bit, so explicit JSON
+// null must be filtered before allocating that wrapper for members that would
+// otherwise behave like unset fields.
+func nullIsUnsetForOneofValue(target reflect.Value) bool {
+	targetType := target.Type()
+	if targetType.Kind() == reflect.Ptr {
+		_, isJSONPBUnmarshaler := reflect.Zero(targetType).Interface().(JSONPBUnmarshaler)
+		return targetType != reflect.TypeOf(&types.Value{}) && !isJSONPBUnmarshaler
+	}
+
+	if target.CanAddr() {
+		if _, ok := target.Addr().Interface().(JSONPBUnmarshaler); ok {
+			return false
+		}
+	}
+
+	return true
+}
+
 // unmarshalValue converts/copies a value into the target.
 // prop may be nil.
 func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMessage, prop *proto.Properties) error {
@@ -1116,11 +1135,14 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 				if !ok {
 					continue
 				}
+				nv := reflect.New(oop.Type.Elem())
+				if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) && nullIsUnsetForOneofValue(nv.Elem().Field(0)) {
+					continue
+				}
 				if setOneofFields[oop.Field] {
 					return fmt.Errorf("field %q would overwrite already-set oneof %q in %v",
 						oop.Prop.OrigName, targetType.Field(oop.Field).Name, targetType)
 				}
-				nv := reflect.New(oop.Type.Elem())
 				target.Field(oop.Field).Set(nv)
 				setOneofFields[oop.Field] = true
 				if err := u.unmarshalValue(nv.Elem().Field(0), raw, oop.Prop); err != nil {
